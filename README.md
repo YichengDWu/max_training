@@ -259,6 +259,11 @@ uv run python benchmarks/pytorch_compile.py \
     --output-dim 64 --max-graph-stats --dump-max-mlir /tmp/max_training.mlir
 ```
 
+Recorded GPU runs:
+
+- [RTX 5090 benchmark](docs/benchmarks/rtx5090.md)
+- [B200 benchmark](docs/benchmarks/b200.md)
+
 The same check can be run through the smoke script:
 
 ```bash
