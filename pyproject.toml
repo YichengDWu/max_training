@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "max-training"
+version = "0.1.0"
+description = "Prototype reverse-mode training support layered on top of MAX."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "max",
+    "modular",
+    "numpy",
+]
+
+[project.optional-dependencies]
+benchmark = [
+    "torch",
+]
+test = [
+    "pytest",
+]
+dev = [
+    "pytest",
+    "torch",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+max = { index = "modular-nightly" }
+modular = { index = "modular-nightly" }
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
