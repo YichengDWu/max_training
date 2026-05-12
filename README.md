@@ -249,3 +249,7 @@ uv run pytest
 - Fixed input shapes for compiled train steps.
 - Prototype backward rules for a small set of tensor ops.
 - No Dataset/DataLoader, torchvision, convolution, pooling, or CrossEntropyLoss.
+
+## License
+
+MIT
