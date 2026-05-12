@@ -227,6 +227,11 @@ It uses the same generated data, initialization, dtype, shapes, learning rate,
 warmup steps, and measured steps for each engine. Compile time is reported
 separately from steady-state step latency.
 
+On CUDA, the benchmark defaults PyTorch float32 matmul precision to `high`,
+which enables TF32 matmul. This matches the current MAX GPU matmul lowering more
+closely than PyTorch's strict FP32 setting. To force strict FP32 PyTorch matmul,
+pass `--torch-float32-matmul-precision highest`.
+
 CPU:
 
 ```bash
@@ -250,6 +255,15 @@ uv run python benchmarks/pytorch_compile.py \
     --output-dim 64 --torch-compile-mode max-autotune
 ```
 
+Strict FP32 PyTorch comparison:
+
+```bash
+uv run python benchmarks/pytorch_compile.py \
+    --device cuda --batch-size 1024 --input-dim 256 --hidden-dim 512 \
+    --output-dim 64 --torch-compile-mode max-autotune \
+    --torch-float32-matmul-precision highest
+```
+
 To inspect the pre-lowering MAX train-step graph for the same workload:
 
 ```bash
@@ -262,7 +276,7 @@ uv run python benchmarks/pytorch_compile.py \
 Recorded GPU runs:
 
 - [RTX 5090 benchmark](docs/benchmarks/rtx5090.md)
-- [B200 benchmark](docs/benchmarks/b200.md)
+- [H100 NVL benchmark](docs/benchmarks/h100nvl.md)
 
 The same check can be run through the smoke script:
 
@@ -275,6 +289,7 @@ DUMP_MAX_MLIR=/tmp/max_training.mlir scripts/gpu_smoke.sh
 Recorded benchmark and graph artifacts are kept outside the main README:
 
 - [RTX 5090 benchmark results](docs/benchmarks/rtx5090.md)
+- [H100 NVL benchmark results](docs/benchmarks/h100nvl.md)
 - [Train-step MLIR](docs/mlir/train_step.md)
 
 ## Tests

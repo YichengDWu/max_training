@@ -32,6 +32,7 @@ from max_training import autograd, optim
 
 
 DeviceName = Literal["cpu", "cuda"]
+TorchFloat32MatmulPrecision = Literal["highest", "high", "medium"]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -540,6 +541,32 @@ def _validate_device(device_name: DeviceName) -> None:
         raise RuntimeError("MAX cannot see an accelerator")
 
 
+def _configure_torch_float32_matmul(
+    device_name: DeviceName,
+    precision: TorchFloat32MatmulPrecision,
+) -> None:
+    """Configures PyTorch float32 matmul precision for CUDA benchmarks."""
+    if device_name != "cuda":
+        return
+
+    torch.set_float32_matmul_precision(precision)
+    allow_tf32 = precision != "highest"
+    torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+    torch.backends.cudnn.allow_tf32 = allow_tf32
+
+
+def _torch_precision_summary(device_name: DeviceName) -> list[str]:
+    if device_name != "cuda":
+        return []
+
+    return [
+        f"torch_float32_matmul_precision: {torch.get_float32_matmul_precision()}",
+        "torch.backends.cuda.matmul.allow_tf32: "
+        f"{torch.backends.cuda.matmul.allow_tf32}",
+        f"torch.backends.cudnn.allow_tf32: {torch.backends.cudnn.allow_tf32}",
+    ]
+
+
 def _run_or_error(
     engine: str,
     fn: Callable[[], BenchResult],
@@ -624,6 +651,16 @@ def main() -> None:
     )
     parser.add_argument("--torch-fullgraph", action="store_true")
     parser.add_argument(
+        "--torch-float32-matmul-precision",
+        choices=("highest", "high", "medium"),
+        default="high",
+        help=(
+            "PyTorch float32 matmul precision. The default, high, enables "
+            "TF32 on CUDA for a fairer comparison with MAX GPU matmul "
+            "lowering. Use highest for strict FP32 PyTorch matmul."
+        ),
+    )
+    parser.add_argument(
         "--max-graph-stats",
         action="store_true",
         help="Print pre-lowering MLIR operation counts for the MAX train step.",
@@ -635,6 +672,11 @@ def main() -> None:
     args = parser.parse_args()
 
     device_name = cast(DeviceName, args.device)
+    torch_precision = cast(
+        TorchFloat32MatmulPrecision,
+        args.torch_float32_matmul_precision,
+    )
+    _configure_torch_float32_matmul(device_name, torch_precision)
     _validate_device(device_name)
 
     workload = _make_workload(
@@ -695,6 +737,10 @@ def main() -> None:
     if args.json:
         print(json.dumps([dataclasses.asdict(result) for result in results], indent=2))
     else:
+        for line in _torch_precision_summary(device_name):
+            print(line)
+        if device_name == "cuda":
+            print()
         _print_table(results)
 
 
