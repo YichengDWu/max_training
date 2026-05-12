@@ -49,6 +49,7 @@ class CompiledTrainStep:
         input_slots: list[_InputSlot],
         output_slots: list[_OutputSlot],
         signal_buffers: list[Buffer],
+        trainable_names: list[str],
         unary: bool,
     ) -> None:
         self._engine_model = engine_model
@@ -56,6 +57,7 @@ class CompiledTrainStep:
         self._input_slots = input_slots
         self._output_slots = output_slots
         self._signal_buffers = signal_buffers
+        self._trainable_names = frozenset(trainable_names)
         self._unary = unary
 
     @property
@@ -88,6 +90,10 @@ class CompiledTrainStep:
                 f"and {len(self._signal_buffers)} signal buffer(s)."
             ) from e
 
+        for name, parameter in self._parameters:
+            if name in self._trainable_names:
+                autograd.mark_dirty(parameter)
+
         return _reconstruct_outputs(
             raw_results, self._output_slots, self._unary
         )
@@ -100,6 +106,7 @@ class _CompiledTrainStepTrace:
     input_slots: list[_InputSlot]
     output_slots: list[_OutputSlot]
     signals: Signals | None
+    trainable_names: list[str]
     unary: bool
 
 
@@ -139,6 +146,7 @@ def compile_train_step(
         input_slots=trace.input_slots,
         output_slots=trace.output_slots,
         signal_buffers=cached_sig_bufs,
+        trainable_names=trace.trainable_names,
         unary=trace.unary,
     )
 
@@ -171,6 +179,10 @@ def _trace_train_step(
     if not isinstance(optimizer, SGD):
         raise NotImplementedError(
             "compile_train_step currently supports max_training.optim.SGD only"
+        )
+    if optimizer.momentum:
+        raise NotImplementedError(
+            "compile_train_step currently supports SGD without momentum only"
         )
 
     parameters = list(module.parameters)
@@ -278,6 +290,7 @@ def _trace_train_step(
         input_slots=input_slots,
         output_slots=output_slots,
         signals=signals,
+        trainable_names=trainable_names,
         unary=unary,
     )
 

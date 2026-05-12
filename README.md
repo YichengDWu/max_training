@@ -21,7 +21,8 @@ The eager-mode hooks are:
 - `Tensor` gets extra Python-side attributes and methods: `requires_grad`,
   `.grad`, `requires_grad_()`, `backward()`, `zero_grad()`, `detach()`, and
   basic in-place arithmetic helpers. Grad metadata is stored directly on Tensor
-  objects as `_requires_grad`, `_grad`, and `_grad_fn`.
+  objects as `_requires_grad`, `_grad`, `_grad_fn`, and
+  `_max_training_version`.
 - `max.experimental.functional` and
   `max.experimental.functional.spmd_ops` functions such as `add`, `matmul`,
   `mean`, `reshape`, `relu`, and `transpose` are wrapped. The wrapper calls the
@@ -35,7 +36,10 @@ The autograd tape is intentionally small. Each supported op has a handwritten
 backward rule in `autograd.py`. `backward(loss)` topologically sorts the graph
 from the loss Tensor, walks it in reverse, and accumulates Tensor gradients into
 leaf `.grad` fields. Optimizers then update parameter buffers with MAX ops such
-as `F.buffer_store(parameter, parameter - lr * grad)`.
+as `F.buffer_store(parameter, parameter - lr * grad)`. Package-controlled
+in-place writes bump `_max_training_version`; `backward()` raises if a saved
+Tensor version changed after the forward pass instead of silently using stale
+values.
 
 The compiled training path uses MAX's Python graph machinery directly:
 
@@ -277,8 +281,8 @@ uv run pytest
 ## Current Limitations
 
 - Single-device tensors only.
-- Compiled training currently applies the SGD learning rate only; eager training
-  supports SGD, SGD momentum, and prototype RMSprop.
+- Compiled training supports plain SGD only; eager training supports SGD, SGD
+  momentum, and prototype RMSprop.
 - Fixed input shapes for compiled train steps.
 - Prototype backward rules for a small set of tensor ops.
 - No Dataset/DataLoader, torchvision, convolution, pooling, or CrossEntropyLoss.

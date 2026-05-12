@@ -95,6 +95,11 @@ class TorchMLP(torch.nn.Module):
         self.fc2 = torch.nn.Linear(
             hidden_dim, output_dim, device=device, dtype=torch.float32
         )
+        self.reset_parameters_from(workload, device)
+
+    def reset_parameters_from(
+        self, workload: Workload, device: torch.device
+    ) -> None:
         with torch.no_grad():
             self.fc1.weight.copy_(_torch_tensor(workload.w1, device))
             self.fc1.bias.copy_(_torch_tensor(workload.b1, device))
@@ -181,6 +186,7 @@ def _time_steps(
     *,
     step: Callable[[], Any],
     loss_item: Callable[[Any], float],
+    evaluate_loss: Callable[[], float],
     sync: Callable[[], None],
     warmup_steps: int,
     steps: int,
@@ -206,6 +212,8 @@ def _time_steps(
         final_loss = loss_item(loss)
         per_step_s.append((ended - started) / steps)
 
+    sync()
+    final_loss = evaluate_loss()
     return per_step_s, final_loss, train_steps
 
 
@@ -263,6 +271,7 @@ def benchmark_torch_eager(
     timings, final_loss, train_steps = _time_steps(
         step=step,
         loss_item=lambda loss: float(loss.detach().cpu()),
+        evaluate_loss=lambda: float(_torch_loss(model, x, y).detach().cpu()),
         sync=lambda: _torch_sync(device),
         warmup_steps=warmup_steps,
         steps=steps,
@@ -315,10 +324,13 @@ def benchmark_torch_compile(
     compiled_step()
     _torch_sync(device)
     compile_time_s = time.perf_counter() - started
+    model.reset_parameters_from(workload, device)
+    optimizer.zero_grad(set_to_none=True)
 
     timings, final_loss, train_steps = _time_steps(
         step=compiled_step,
         loss_item=lambda loss: float(loss.detach().cpu()),
+        evaluate_loss=lambda: float(_torch_loss(model, x, y).detach().cpu()),
         sync=lambda: _torch_sync(device),
         warmup_steps=warmup_steps,
         steps=steps,
@@ -331,7 +343,7 @@ def benchmark_torch_compile(
         compile_time_s=compile_time_s,
         initial_loss=initial_loss,
         final_loss=final_loss,
-        train_steps=train_steps + 1,
+        train_steps=train_steps,
         per_step_s=timings,
     )
 
@@ -373,6 +385,7 @@ def benchmark_max_eager(
     timings, final_loss, train_steps = _time_steps(
         step=step,
         loss_item=lambda loss: loss.item(),
+        evaluate_loss=lambda: _max_loss(model, x, y).item(),
         sync=lambda: _max_sync(device),
         warmup_steps=warmup_steps,
         steps=steps,
@@ -419,6 +432,7 @@ def benchmark_max_compile(
     timings, final_loss, train_steps = _time_steps(
         step=lambda: train_step(x, y),
         loss_item=lambda loss: loss.item(),
+        evaluate_loss=lambda: _max_loss(model, x, y).item(),
         sync=lambda: _max_sync(device),
         warmup_steps=warmup_steps,
         steps=steps,

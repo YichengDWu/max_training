@@ -39,6 +39,8 @@ class GradFn:
     """Backward edge recorded on a tensor produced by a differentiable op."""
 
     parents: tuple[Any, ...]
+    parent_versions: tuple[int, ...]
+    result_version: int
     backward: Callable[[Any], tuple[Any | None, ...]]
 
 
@@ -64,6 +66,32 @@ def _set_grad_fn(tensor: Any, grad_fn: GradFn | None) -> None:
     setattr(tensor, "_grad_fn", grad_fn)
 
 
+def _version(tensor: Any) -> int:
+    return int(getattr(tensor, "_max_training_version", 0))
+
+
+def _ensure_version(tensor: Any) -> None:
+    if not hasattr(tensor, "_max_training_version"):
+        setattr(tensor, "_max_training_version", 0)
+
+
+def mark_dirty(tensor: Any) -> Any:
+    """Marks ``tensor`` as mutated in place for stale tape detection."""
+
+    setattr(tensor, "_max_training_version", _version(tensor) + 1)
+    return tensor
+
+
+def _check_version(tensor: Any, expected: int) -> None:
+    actual = _version(tensor)
+    if actual != expected:
+        raise RuntimeError(
+            "one of the tensors needed for gradient computation was "
+            "modified in place; expected version "
+            f"{expected}, found version {actual}"
+        )
+
+
 def _shape_tuple(tensor: Any) -> tuple[int, ...]:
     return tuple(int(dim) for dim in tensor.shape)
 
@@ -82,6 +110,7 @@ def no_grad() -> Generator[None]:
 def requires_grad_(tensor: Any, value: bool = True) -> Any:
     """Marks ``tensor`` as a leaf that should accumulate gradients."""
 
+    _ensure_version(tensor)
     _set_requires_grad(tensor, value)
     if not value:
         _set_grad_fn(tensor, None)
@@ -107,6 +136,7 @@ def detach(tensor: Any) -> Any:
         )
     tensor._sync_realize()
     detached = Tensor(storage=tensor.driver_tensor)
+    _ensure_version(detached)
     _set_requires_grad(detached, False)
     _set_grad_fn(detached, None)
     setattr(detached, "_grad", None)
@@ -368,6 +398,9 @@ def record(
     if op_name not in _SUPPORTED_OPS and _grad_fn(result) is not None:
         return result
 
+    _ensure_version(result)
+    parent_versions = tuple(_version(args[index]) for index in parent_indices)
+
     def backward_fn(grad: Any) -> tuple[Any | None, ...]:
         all_grads = _gradient_for(graph_op, args, kwargs, result, grad)
         return tuple(all_grads[index] for index in parent_indices)
@@ -377,6 +410,8 @@ def record(
         result,
         GradFn(
             parents=tuple(args[index] for index in parent_indices),
+            parent_versions=parent_versions,
+            result_version=_version(result),
             backward=backward_fn,
         ),
     )
@@ -426,6 +461,11 @@ def backward(tensor: Any, grad: Any | None = None) -> None:
             grad_fn = _grad_fn(current)
             if current_grad is None or grad_fn is None:
                 continue
+            _check_version(current, grad_fn.result_version)
+            for parent, expected_version in zip(
+                grad_fn.parents, grad_fn.parent_versions, strict=True
+            ):
+                _check_version(parent, expected_version)
             parent_grads = grad_fn.backward(current_grad)
             for parent, parent_grad in zip(
                 grad_fn.parents, parent_grads, strict=True

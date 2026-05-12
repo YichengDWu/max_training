@@ -29,6 +29,7 @@ dev = [
 [dependency-groups]
 dev = [
     "pytest",
+    "torch",
 ]
 
 [tool.uv]

@@ -130,21 +130,25 @@ def _patch_tensor() -> None:
     def iadd(self: Tensor, value: Any) -> Tensor:
         self._sync_realize()
         F.buffer_store(self, self + value)
+        autograd.mark_dirty(self)
         return self
 
     def isub(self: Tensor, value: Any) -> Tensor:
         self._sync_realize()
         F.buffer_store(self, self - value)
+        autograd.mark_dirty(self)
         return self
 
     def imul(self: Tensor, value: Any) -> Tensor:
         self._sync_realize()
         F.buffer_store(self, self * value)
+        autograd.mark_dirty(self)
         return self
 
     def itruediv(self: Tensor, value: Any) -> Tensor:
         self._sync_realize()
         F.buffer_store(self, self / value)
+        autograd.mark_dirty(self)
         return self
 
     Tensor.requires_grad = property(requires_grad_get, requires_grad_set)  # type: ignore[attr-defined]

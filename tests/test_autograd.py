@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from max.driver import CPU
 from max.experimental.tensor import Tensor
-from max_training import autograd
+from max_training import autograd, optim
 
 
 def _tensor(data: object) -> Tensor:
@@ -59,3 +60,25 @@ def test_matmul_backward_cpu() -> None:
     np.testing.assert_allclose(
         _to_numpy(w_grad), [[4.0, 4.0, 4.0], [6.0, 6.0, 6.0]]
     )
+
+
+def test_inplace_mutation_before_backward_raises_cpu() -> None:
+    x = autograd.requires_grad_(_tensor([2.0, 3.0]))
+    loss = (x * x).sum(axis=None)
+
+    x += 1.0
+
+    with pytest.raises(RuntimeError, match="modified in place"):
+        autograd.backward(loss)
+
+
+def test_optimizer_step_marks_existing_tape_stale_cpu() -> None:
+    x = autograd.requires_grad_(_tensor([2.0, 3.0]))
+    optimizer = optim.SGD([x], lr=0.1)
+    loss = (x * x).sum(axis=None)
+
+    autograd.backward(loss)
+    optimizer.step()
+
+    with pytest.raises(RuntimeError, match="modified in place"):
+        autograd.backward(loss)

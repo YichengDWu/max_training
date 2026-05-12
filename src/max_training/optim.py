@@ -67,6 +67,7 @@ class SGD:
                     update = self.momentum * momentum_buffer + grad
                     F.buffer_store(momentum_buffer, update)
                 F.buffer_store(parameter, parameter - self.lr * update)
+                autograd.mark_dirty(parameter)
 
     def zero_grad(self) -> None:
         """Clears gradients for all optimizer parameters."""
@@ -118,6 +119,7 @@ class RMSprop:
                 F.buffer_store(square_avg, new_square_avg)
                 update = grad / (F.sqrt(new_square_avg) + self.eps)
                 F.buffer_store(parameter, parameter - self.lr * update)
+                autograd.mark_dirty(parameter)
 
     def zero_grad(self) -> None:
         """Clears gradients for all optimizer parameters."""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import max_training
 import numpy as np
+import pytest
 from max.driver import CPU
 from max.dtype import DType
 from max.experimental import functional as F
@@ -73,6 +74,27 @@ def test_compiled_linear_regression_sgd_cpu_converges() -> None:
     assert loss.item() < 1e-4
     assert abs(model.weight.item() - 2.0) < 1e-3
     assert abs(model.bias.item() - 1.0) < 1e-3
+
+
+def test_compiled_sgd_momentum_is_rejected_cpu() -> None:
+    model = Dense([[0.0]], [0.0])
+    optimizer = optim.SGD(
+        (parameter for _, parameter in model.parameters),
+        lr=0.2,
+        momentum=0.9,
+    )
+
+    def mse_loss(model: Dense, x: Tensor, y: Tensor) -> Tensor:
+        return ((model(x) - y) ** 2).mean(axis=None)
+
+    with pytest.raises(NotImplementedError, match="without momentum"):
+        max_training.compile_train_step(
+            model,
+            TensorType(DType.float32, [5, 1], device=CPU()),
+            TensorType(DType.float32, [5, 1], device=CPU()),
+            loss_fn=mse_loss,
+            optimizer=optimizer,
+        )
 
 
 class TinyMLP(Module[[Tensor], Tensor]):
