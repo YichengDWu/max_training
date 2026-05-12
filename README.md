@@ -12,23 +12,56 @@ PyTorch comparison benchmarks.
 
 ## How It Works
 
-`max_training` is a standalone Python package. Importing it enables a small
-training layer on top of `max.experimental` tensors and modules; no MAX/Mojo
-source checkout is required.
+`max_training` does not patch files inside the installed `max` wheel. The hack
+is done at Python import time. `import max_training` calls `enable()`, which
+mutates the live `max.experimental` Python objects in the current process.
 
-In eager mode, supported Tensor operations are recorded on a reverse-mode
-autograd tape. Calling `backward()` from a scalar loss walks that tape in
-reverse and accumulates `.grad` values on trainable tensors. Parameters, layers,
-losses, and optimizers are intentionally small and cover the PyTorch tutorial
-workloads used by the examples.
+The eager-mode hooks are:
 
-Compiled training traces a complete single-step workload into one MAX graph:
-forward pass, loss, backward pass, and SGD parameter update. The compiled step
-then runs against the model's current parameter buffers and returns the loss for
-that step. MLIR can be inspected with `examples/print_train_step_mlir.py`.
+- `Tensor` gets extra Python-side attributes and methods: `requires_grad`,
+  `.grad`, `requires_grad_()`, `backward()`, `zero_grad()`, `detach()`, and
+  basic in-place arithmetic helpers. Grad metadata is stored directly on Tensor
+  objects as `_requires_grad`, `_grad`, and `_grad_fn`.
+- `max.experimental.functional` and
+  `max.experimental.functional.spmd_ops` functions such as `add`, `matmul`,
+  `mean`, `reshape`, `relu`, and `transpose` are wrapped. The wrapper calls the
+  original MAX op, then records a `GradFn` edge when any Tensor input requires
+  gradients.
+- `Module.parameters` is replaced with a view that is both MAX-style iterable
+  `(name, parameter)` and PyTorch-style callable, so examples can use either
+  `for name, p in module.parameters` or `module.parameters()`.
+
+The autograd tape is intentionally small. Each supported op has a handwritten
+backward rule in `autograd.py`. `backward(loss)` topologically sorts the graph
+from the loss Tensor, walks it in reverse, and accumulates Tensor gradients into
+leaf `.grad` fields. Optimizers then update parameter buffers with MAX ops such
+as `F.buffer_store(parameter, parameter - lr * grad)`.
+
+The compiled training path uses MAX's Python graph machinery directly:
+
+1. `compile_train_step()` reads the module's current parameters and creates a
+   `Graph` whose inputs are parameter buffers followed by user inputs.
+2. It enters `GraphRealizationContext`, converts graph inputs back into
+   Tensor objects with `Tensor.from_graph_value()`, and temporarily remaps the
+   module's parameters through `module._mapped_parameters(...)`.
+3. It runs the user `loss_fn(module, *inputs)` while the autograd wrappers are
+   active, so the forward graph and backward graph are both traced as MAX graph
+   ops instead of being executed eagerly.
+4. It calls `autograd.backward(loss)` during tracing, reads each graph
+   parameter's `.grad`, and appends the SGD update into the same graph with
+   `F.buffer_store(parameter, parameter - optimizer.lr * grad)`.
+5. The resulting graph is loaded with MAX's internal `_session().load(...)`.
+   At runtime, `CompiledTrainStep.__call__` passes the model's live parameter
+   buffers plus user input buffers to the loaded `Model`, so the compiled graph
+   mutates the model parameters in place and returns the loss.
+
+MLIR inspection is also intentionally direct: `graph_module_asm()` calls the
+current graph object's private `graph._module.asm(...)` hook. This is useful
+for experimentation, but it is tied to MAX internals.
 
 This package targets training semantics and convergence behavior, not full
-PyTorch API compatibility.
+PyTorch API compatibility. It relies on private/experimental MAX Python APIs,
+so it should be treated as a prototype rather than a stable extension surface.
 
 ## Supported Surface
 
